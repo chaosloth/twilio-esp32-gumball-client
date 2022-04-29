@@ -8,7 +8,7 @@
   License:     GNU GPL 3, see libraries for respective licenes too
   ============================================================
 */
-
+#define VERSION "1.5.0" // Internal version
 #include <Arduino.h>
 
 #if defined(ESP8266)
@@ -16,20 +16,21 @@
 #include <ESP8266WiFiMulti.h> // Include the ESP8266 Wi-Fi-Multi library
 #include <ESP8266mDNS.h>      // Include the ESP8266 mDNS library
 #elif defined(ESP32)
-#include <WiFiMulti.h>       // Include the ESP32 Wi-Fi-Multi Library
-#include <ESPmDNS.h>         // Include the ESP32 mDNS Library
-#include <SPIFFS.h>          // Include the ESP32 SPIFFS Library
-#include <AsyncElegantOTA.h> // Include ElegantOTA library for ESP32 only
+#include <WiFiMulti.h> // Include the ESP32 Wi-Fi-Multi Library
+#include <ESPmDNS.h>   // Include the ESP32 mDNS Library
+#include <SPIFFS.h>    // Include the ESP32 SPIFFS Library
+#include <AsyncTCP.h>
 #endif
 
 #include <ESPAsyncWebServer.h>
 #include <ESPAsync_WiFiManager.h>
+#include <AsyncElegantOTA.h> // Include ElegantOTA library for ESP32 only
 #include <ArduinoWebsockets.h>
 #include <ArduinoJson.h>
 
 // Hardcoded stuff
-#define OTA_USERNAME "twilio"   // Username for OTA firmware updates
-#define OTA_PASSWORD "tw1l10ns" // Password for OTA firmware updates
+#define OTA_USERNAME "twilio" // Username for OTA firmware updates
+#define OTA_PASSWORD "twilio" // Password for OTA firmware updates
 
 // #define MOTOR_A_PIN 2               // Use LED as indicator for now
 #define WIFICHECK_INTERVAL 5000L    // How often to check WIFI connection
@@ -64,7 +65,7 @@ static ulong checkbutton_timeout = 0;
 static ulong checkwifi_timeout = 0;
 
 // Configurable parameters in the UI
-const char *ws_url = "ws://192.168.1.215:5001/";
+const char *ws_url = "ws://twilio-gumball-ws-host.herokuapp.com/";
 websockets::WebsocketsClient wsClient;
 
 // #define LABEL_WS_URL               "WS Host URL"
@@ -75,11 +76,11 @@ websockets::WebsocketsClient wsClient;
 /* This variables stores the duration in milliseconds to dispense candy. Longer = more candy!!! */
 int dispense_duration = 4000L;
 
-void giveMeCandy()
+void giveMeCandy(int duration)
 {
   // Serial.printf("Dispensing candy!\n");
   digitalWrite(MOTOR_A_PIN, HIGH);
-  delay(dispense_duration);
+  delay(duration);
   digitalWrite(MOTOR_A_PIN, LOW);
 }
 
@@ -126,11 +127,16 @@ void connectOrConfigureWifi()
       WiFi.mode(WIFI_STA);
       WiFi.begin();
       int retryCount = 0;
-      while (WiFi.status() != WL_CONNECTED && retryCount < 20)
+      while (WiFi.status() != WL_CONNECTED && retryCount <= 20)
       {
         retryCount++;
         Serial.print('.');
         delay(1000);
+      }
+
+      if (retryCount >= 20)
+      {
+        initialConfig = true;
       }
     }
     else
@@ -165,10 +171,15 @@ void onWsEventsCallback(websockets::WebsocketsEvent event, String data)
     Serial.println(F("WS Got unknown event"));
   }
 }
+void sendWSMessage(String message)
+{
+  wsClient.send(message);
+  Serial.printf(">> Sending WS message: %s\n", message.c_str());
+}
 
 void onWsMessageCallback(websockets::WebsocketsMessage message)
 {
-  Serial.printf("<<< Got WS Message:\n%s\n\n", message.data().c_str());
+  Serial.printf("<<< Got WS Message: %s\n", message.data().c_str());
   try
   {
     StaticJsonDocument<500> json;
@@ -180,17 +191,32 @@ void onWsMessageCallback(websockets::WebsocketsMessage message)
       {
         Serial.println(F("Error: action is missing"));
       }
-      else
+      else if (strcmp(action.as<const char *>(), "none") == 0)
       {
-        if (strcmp(action.as<const char *>(), "dispense") == 0)
+        Serial.print(F("No action required "));
+        Serial.println(message.data());
+      }
+      else if (strcmp(action.as<const char *>(), "dispense") == 0)
+      {
+        JsonVariant duration = object.getMember("duration");
+        if (duration.isNull())
         {
-          giveMeCandy();
+          giveMeCandy(dispense_duration);
+        }
+        else
+        {
+          giveMeCandy(duration);
         }
       }
-    }
-    else
-    {
-      throw std::runtime_error("Cannot deserialize message");
+      else if (strcmp(action.as<const char *>(), "ping") == 0)
+      {
+        // Send PONG
+        sendWSMessage("{\"action\":\"pong\"}");
+      }
+      else
+      {
+        throw std::runtime_error("Unknown message or cannot deserialize message");
+      }
     }
   }
   catch (std::exception const &e)
@@ -237,11 +263,31 @@ void initOTA()
   webServer.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
                { request->send(SPIFFS, "/index.html", "text/html"); });
 
+  webServer.on("/info", HTTP_GET, [](AsyncWebServerRequest *request)
+               {
+    StaticJsonDocument<150> data;
+    data["hostname"] = unique_hostname;
+    data["version"] = VERSION;
+    data["ip"] = WiFi.localIP().toString();
+    data["wsConnected"] = isWSConnected;
+#if defined(ESP8266)
+    data["platform"] = "ESP8266";
+#elif defined(ESP32)
+    data["platform"] = "ESP32";
+#endif
+    String response;
+    serializeJson(data, response);
+    request->send(200, "application/json", response); });
+
   webServer.onNotFound([](AsyncWebServerRequest *request)
                        { request->send(404); });
 
   // Configure ElegantOTA with username and password
   AsyncElegantOTA.begin(&webServer, OTA_USERNAME, OTA_PASSWORD);
+
+  DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
+  DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers", "content-type");
+
   webServer.begin();
   MDNS.addService("http", "tcp", 80);
 
@@ -339,7 +385,7 @@ void setup()
   delay(200);
   Serial.printf("\nStarting Connected Gumball Feeder\n");
 #if defined(ESP32)
-  if (!SPIFFS.begin())
+  if (!SPIFFS.begin(true))
   {
     Serial.println(F("An Error has occurred while mounting SPIFFS"));
     return;
@@ -352,5 +398,7 @@ void loop()
   checkButtons();  // Check if buttons have been pressed
   checkWifiLoop(); // Ensure WIFI connected
   wsClient.poll(); // Check for incoming messages
+  AsyncElegantOTA.loop();
+
   yield();
 }

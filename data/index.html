@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Twilio Gumball Machine</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+      }
+
+      .content {
+        font-weight: 300;
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        text-align: center;
+        -webkit-transform: translate(-50%, -50%);
+        transform: translate(-50%, -50%);
+      }
+
+      .header {
+        font-weight: 100;
+      }
+
+      @keyframes rotation {
+        from {
+          transform: rotate(0deg);
+        }
+
+        to {
+          transform: rotate(359deg);
+        }
+      }
+
+      @keyframes flip {
+        from {
+          transform: scaleX(-1);
+        }
+
+        to {
+          transform: scaleX(1);
+        }
+      }
+
+      #jsonInfo {
+        text-align: left;
+      }
+      pre {
+        outline: 1px solid #ccc;
+        padding: 5px;
+        margin: 5px;
+      }
+      .string {
+        color: green;
+      }
+      .number {
+        color: darkorange;
+      }
+      .boolean {
+        color: blue;
+      }
+      .null {
+        color: magenta;
+      }
+      .key {
+        color: red;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="content">
+      <h1 class="header">Twilio Gumball Machine</h1>
+      <div>
+        <svg
+          style="animation: rotation 4s infinite linear"
+          width="100"
+          height="100"
+          viewBox="0 0 256 256"
+          xmlns="http://www.w3.org/2000/svg"
+          preserveAspectRatio="xMidYMid"
+        >
+          <g fill="#CF272D">
+            <path
+              d="M127.86 222.304c-52.005 0-94.164-42.159-94.164-94.163 0-52.005 42.159-94.163 94.164-94.163 52.004 0 94.162 42.158 94.162 94.163 0 52.004-42.158 94.163-94.162 94.163zm0-222.023C57.245.281 0 57.527 0 128.141 0 198.756 57.245 256 127.86 256c70.614 0 127.859-57.244 127.859-127.859 0-70.614-57.245-127.86-127.86-127.86z"
+            />
+            <path
+              d="M133.116 96.297c0-14.682 11.903-26.585 26.586-26.585 14.683 0 26.585 11.903 26.585 26.585 0 14.684-11.902 26.586-26.585 26.586-14.683 0-26.586-11.902-26.586-26.586M133.116 159.983c0-14.682 11.903-26.586 26.586-26.586 14.683 0 26.585 11.904 26.585 26.586 0 14.683-11.902 26.586-26.585 26.586-14.683 0-26.586-11.903-26.586-26.586M69.431 159.983c0-14.682 11.904-26.586 26.586-26.586 14.683 0 26.586 11.904 26.586 26.586 0 14.683-11.903 26.586-26.586 26.586-14.682 0-26.586-11.903-26.586-26.586M69.431 96.298c0-14.683 11.904-26.585 26.586-26.585 14.683 0 26.586 11.902 26.586 26.585 0 14.684-11.903 26.586-26.586 26.586-14.682 0-26.586-11.902-26.586-26.586"
+            />
+          </g>
+        </svg>
+      </div>
+      <pre id="jsonInfo"></pre>
+    </div>
+
+    <script>
+      function setInfo(id, content) {
+        document.getElementById(id).innerHTML = content;
+      }
+
+      function syntaxHighlight(json) {
+        if (typeof json != "string") {
+          json = JSON.stringify(json, undefined, 2);
+        }
+        json = json
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+        return json.replace(
+          /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+          function (match) {
+            var cls = "number";
+            if (/^"/.test(match)) {
+              if (/:$/.test(match)) {
+                cls = "key";
+              } else {
+                cls = "string";
+              }
+            } else if (/true|false/.test(match)) {
+              cls = "boolean";
+            } else if (/null/.test(match)) {
+              cls = "null";
+            }
+            return '<span class="' + cls + '">' + match + "</span>";
+          }
+        );
+      }
+
+      window.onload = (event) => {
+        fetch("/info")
+          .then((response) => response.json())
+          .then((data) => {
+            console.log("Host info:", data);
+            setInfo("jsonInfo", syntaxHighlight(data));
+          });
+      };
+    </script>
+  </body>
+</html>
