@@ -99,7 +99,3 @@ To deploy the application to Heroku, first have the project linked as a report r
 `$ git push heroku main`
 
 This will cause Heroku to run the build commands in the `package.json` and deploy to a live environment
-
-## Example incoming messages
-
-The app server can be triggered by one of the following inbound requests
